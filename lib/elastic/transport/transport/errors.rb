@@ -28,7 +28,14 @@ module Elastic
 
       # Elastic server error (HTTP status 5xx)
       #
-      class ServerError < Error; end
+      class ServerError < Error
+        attr_reader :body
+
+        def initialize(message, body: nil)
+          @body = body.is_a?(String) ? JSON.parse(body) : body
+          super(message)
+        end
+      end
 
       module Errors; end
 

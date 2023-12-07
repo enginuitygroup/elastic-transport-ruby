@@ -225,7 +225,8 @@ module Elastic
         #
         def __raise_transport_error(response)
           error = ERRORS[response.status] || ServerError
-          raise error.new "[#{response.status}] #{response.body}"
+          json = __deserialize_response(response)
+          raise error.new "[#{response.status}] #{response.body}", body: json || response.body
         end
 
         # Converts any non-String object to JSON
@@ -249,6 +250,23 @@ module Elastic
           url += host[:path] if host[:path]
           url
         end
+
+        def __deserialize_response(response)
+          if response.body &&
+            !response.body.empty? &&
+            response.headers &&
+            response.headers["content-type"] =~ /json/
+
+            # Prevent Float value from automatically becoming BigDecimal when using Oj
+            load_options = {}
+            load_options[:mode] = :compat if ::MultiJson.adapter.to_s == "MultiJson::Adapters::Oj"
+
+            serializer.load(response.body, load_options)
+          else
+            nil
+          end
+        end
+
 
         # Performs a request to Elasticsearch, while handling logging, tracing, marking dead connections,
         # retrying the request and reloading the connections.
@@ -346,17 +364,8 @@ module Elastic
             __raise_transport_error response unless ignore.include?(response.status.to_i)
           end
 
-          if response.body &&
-            !response.body.empty? &&
-            response.headers &&
-            response.headers["content-type"] =~ /json/
+          json = __deserialize_response(response)
 
-            # Prevent Float value from automatically becoming BigDecimal when using Oj
-            load_options = {}
-            load_options[:mode] = :compat if ::MultiJson.adapter.to_s == "MultiJson::Adapters::Oj"
-
-            json = serializer.load(response.body, load_options)
-          end
           took = (json['took'] ? sprintf('%.3fs', json['took'] / 1000.0) : 'n/a') rescue 'n/a'
           __log_response(method, path, params, body, url, response, json, took, duration) unless ignore.include?(response.status.to_i)
           __trace(method, path, params, connection_headers(connection), body, url, response, nil, 'N/A', duration) if tracer
